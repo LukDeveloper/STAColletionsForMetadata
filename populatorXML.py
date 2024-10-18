@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 # URL da coleção
-collection_url = "https://data.inpe.br/bdc/stac/v1/collections/AMZ1-WFI-L4-SR-1"
+collection_url = "https://data.inpe.br/bdc/stac/v1/collections/S2_L2A_BUNDLE-1"
 
 # Requisição para obter os detalhes da coleção
 response = requests.get(collection_url)
@@ -15,6 +15,17 @@ title = collection_data.get("title", "Título não disponível")
 description = collection_data.get("description", "Resumo não disponível")
 keywords = collection_data.get("keywords", [])
 restrictions = collection_data.get("license", "Restrições não disponíveis")
+links = collection_data.get("links", [])
+if len(links) > 4:
+    license_info = {
+        "title": links[4].get("title", "Título não disponível"),
+        "href": links[4].get("href", "Link de licença não disponível")
+    }
+else:
+    license_info = {
+        "title": "Título não disponível",
+        "href": "Link de licença não disponível"
+    }
 
 # Extração da caixa delimitadora geográfica (spatial_extent)
 bbox = collection_data.get("extent", {}).get("spatial", {}).get("bbox", [])
@@ -37,7 +48,7 @@ links = collection_data.get("links", [])
 online_resource = [link.get("href") for link in links if link.get("rel") == "self"]
 
 # Caminho para Template XML ISO19115/19139
-template_file = '/kaggle/input/overviewtemplate/templatefinal.xml'
+template_file = '/kaggle/input/templatecollection/templatestac.xml'
 with open(template_file, 'r', encoding='utf-8') as file:
     xml_template = file.read()
 
@@ -122,9 +133,9 @@ def update_xml_with_data(xml_template, data):
         overview.text = get_first_png_url(collection_url)
 
     # Adicionando valor para "Restrições de Recursos"
-    constraints_elem = root.find('.//gmd:resourceConstraints/gmd:MD_LegalConstraints/gmd:useConstraints/gmd:MD_RestrictionCode', namespaces)
+    constraints_elem = root.find('.//gmd:resourceConstraints/gmd:MD_LegalConstraints/gmd:otherConstraints/gco:CharacterString', namespaces)
     if constraints_elem is not None:
-        constraints_elem.text = data.get('restrictions', '')
+        constraints_elem.text = f"{license_info['title']}: {license_info['href']}"
 
     # Adicionando caixa delimitadora geográfica
     bbox_elem = root.find('.//gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox', namespaces)
