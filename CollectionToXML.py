@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 # URL da coleção
-collection_url = "https://data.inpe.br/bdc/stac/v1/collections/S2_L2A_BUNDLE-1"
+collection_url = "https://data.inpe.br/bdc/stac/v1/collections/mod13q1-6.1"
 
 # Requisição para obter os detalhes da coleção
 response = requests.get(collection_url)
@@ -14,16 +14,17 @@ collection_data = response.json()
 title = collection_data.get("title", "Título não disponível")
 description = collection_data.get("description", "Resumo não disponível")
 keywords = collection_data.get("keywords", [])
+collection_id = collection_data.get("id", "ID não disponível")
 restrictions = collection_data.get("license", "Restrições não disponíveis")
 links = collection_data.get("links", [])
 if len(links) > 4:
     license_info = {
-        "title": links[4].get("title", "Título não disponível"),
+        "title": links[4].get("title", "Licença não disponível"),
         "href": links[4].get("href", "Link de licença não disponível")
     }
 else:
     license_info = {
-        "title": "Título não disponível",
+        "title": "Licença não disponível",
         "href": "Link de licença não disponível"
     }
 
@@ -48,7 +49,7 @@ links = collection_data.get("links", [])
 online_resource = [link.get("href") for link in links if link.get("rel") == "self"]
 
 # Caminho para Template XML ISO19115/19139
-template_file = '/kaggle/input/templatecollection/templatestac.xml'
+template_file = '/kaggle/input/templateatualizado/MetadataTemplateSTAC.xml'
 with open(template_file, 'r', encoding='utf-8') as file:
     xml_template = file.read()
 
@@ -104,10 +105,34 @@ def get_first_png_url(stac_collection_url):
     else:
         return "Nenhuma imagem PNG encontrada."
 
+# Função para extrair formatos dos assets
+def get_resource_formats(stac_collection_url):
+    stac_items_url = stac_collection_url.rstrip('/') + "/items"
+    response = requests.get(stac_items_url)
+    items_data = response.json()
+
+    formats = set()  # Usamos um set para evitar duplicatas
+
+    for item in items_data['features']:
+        assets = item['assets']
+        for asset_info in assets.values():
+            if 'type' in asset_info:
+                formats.add(asset_info['type'])  # Adiciona o tipo do asset (formato)
+
+    return list(formats)  # Retorna uma lista de formatos únicos
+
+# Adiciona ao exemplo
+formats = get_resource_formats(collection_url)
+
+
 # Função para substituir placeholders com dados reais
 def update_xml_with_data(xml_template, data):
     tree = ET.ElementTree(ET.fromstring(xml_template))
     root = tree.getroot()
+
+    file_identifier_elem = root.find('.//gmd:fileIdentifier/gco:CharacterString', namespaces)
+    if file_identifier_elem is not None:
+        file_identifier_elem.text = data.get('collection_id', '')
 
     # Adicionando valor para o "Título"
     title_elem = root.find('.//gmd:title/gco:CharacterString', namespaces)
@@ -120,12 +145,20 @@ def update_xml_with_data(xml_template, data):
         abstract_elem.text = data.get('description', '')
 
     # Adicionando valor para "Palavras-chave"
-    keywords_elems = root.findall('.//gmd:keyword/gco:CharacterString', namespaces)
-    for i, keyword_elem in enumerate(keywords_elems):
-        if i < len(data.get('keywords', [])):
-            keyword_elem.text = data['keywords'][i]
-        else:
-            keyword_elem.text = ''
+    # Adicionando palavras-chave ao XML
+    keywords_parent_elem = root.find('.//gmd:descriptiveKeywords/gmd:MD_Keywords', namespaces)
+    
+    # Verifica se a seção de palavras-chave já existe
+    if keywords_parent_elem is not None:
+        # Limpa as palavras-chave existentes (se necessário)
+        for keyword_elem in keywords_parent_elem.findall('.//gmd:keyword', namespaces):
+            keywords_parent_elem.remove(keyword_elem)  # Remover diretamente o elemento encontrado
+    
+        # Adiciona novas palavras-chave com base no input
+        for keyword in data.get('keywords', []):
+            new_keyword_elem = ET.SubElement(keywords_parent_elem, 'gmd:keyword')
+            char_string_elem = ET.SubElement(new_keyword_elem, 'gco:CharacterString')
+            char_string_elem.text = keyword
     
      # Adicionando valor para "Overview (URL da imagem)"
     overview = root.find('.//gmd:MD_BrowseGraphic/gmd:fileName/gco:CharacterString', namespaces)
@@ -145,20 +178,58 @@ def update_xml_with_data(xml_template, data):
         bbox_elem.find('gmd:southBoundLatitude/gco:Decimal', namespaces).text = str(data['spatial_extent'][3])
         bbox_elem.find('gmd:northBoundLatitude/gco:Decimal', namespaces).text = str(data['spatial_extent'][1])
 
-    # Adicionando extensão temporal corretamente dentro de gmd:EX_TemporalExtent
+    # Corrigir a estrutura do XML para o intervalo temporal
     temporal_elem = root.find('.//gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod', namespaces)
     if temporal_elem is not None:
         begin_elem = temporal_elem.find('gml:beginPosition', namespaces)
-        end_elem = temporal_elem.find('gml:endPosition', namespaces)
+        end_elem = temporal_elem.find('gml:endPosition', namespaces)  # Usar 'gml:endPosition' em vez de 'gml:end'
+        
         if begin_elem is not None and len(data.get('temporal_extent', [])) > 0:
             begin_elem.text = format_date(data['temporal_extent'][0])  # Formatar período de início
+        
         if end_elem is not None and len(data.get('temporal_extent', [])) > 1:
             end_elem.text = format_date(data['temporal_extent'][1])  # Formatar período de fim
 
     # Adicionando recurso online
-    online_elem = root.find('.//gmd:distributionInfo/gmd:MD_Distribution/gmd:transferOptions/gmd:MD_DigitalTransferOptions/gmd:onLine/gmd:CI_OnlineResource/gmd:linkage/gmd:URL', namespaces)
-    if online_elem is not None and data.get('online_resource'):
-        online_elem.text = data['online_resource'][0]
+    online_elems = root.findall('.//gmd:distributionInfo/gmd:MD_Distribution/gmd:transferOptions/gmd:MD_DigitalTransferOptions/gmd:onLine', namespaces)
+    
+    # Verifica se existem recursos online e se o segundo recurso online está presente
+    if len(online_elems) > 1 and data.get('online_resource'):
+        # Atualiza o segundo recurso online
+        second_online_elem = online_elems[1]
+        
+        # Atualiza o link
+        link_elem = second_online_elem.find('.//gmd:CI_OnlineResource/gmd:linkage/gmd:URL', namespaces)
+        if link_elem is not None:
+            link_elem.text = data['online_resource'][0]  # Substitua com o valor apropriado
+    
+        # Atualiza o protocolo
+        protocol_elem = second_online_elem.find('.//gmd:CI_OnlineResource/gmd:protocol/gco:CharacterString', namespaces)
+        if protocol_elem is not None:
+            protocol_elem.text = "WWW:LINK-2.0-http--link"  # Você pode ajustar conforme necessário
+    
+        # Atualiza o título do recurso
+        title_resource = second_online_elem.find('.//gmd:CI_OnlineResource/gmd:name/gco:CharacterString', namespaces)
+        if title_resource is not None:
+            title_resource.text = f'{data.get("title", "")} Collection'  # Adapte conforme necessário
+    
+        # Atualiza a descrição do recurso
+        descript_resource = second_online_elem.find('.//gmd:CI_OnlineResource/gmd:description/gco:CharacterString', namespaces)
+        if descript_resource is not None:
+            descript_resource.text = f'End point to access INPE Spatio Temporal Asset Catalog (STAC) server, collection {data.get("collection_id", "")}'  # Adapte conforme necessário
+            
+
+    distribution_format_elem = root.find('.//gmd:distributionFormat', namespaces)    
+    for fmt in formats:
+        md_format = ET.SubElement(distribution_format_elem, 'gmd:MD_Format')
+        
+        name_elem = ET.SubElement(md_format, 'gmd:name')
+        char_string_elem = ET.SubElement(name_elem, 'gco:CharacterString')
+        char_string_elem.text = fmt
+    
+        version_elem = ET.SubElement(md_format, 'gmd:version')
+        char_string_elem_version = ET.SubElement(version_elem, 'gco:CharacterString')
+        char_string_elem_version.set('gco:nilReason', 'unknown')
 
     return tree
 
@@ -166,7 +237,6 @@ def update_xml_with_data(xml_template, data):
 output_dir = '/kaggle/working/output_xml_files'
 os.makedirs(output_dir, exist_ok=True)
 
-# Dados de exemplo
 example_data = {
     'title': title,
     'description': description,
@@ -174,7 +244,8 @@ example_data = {
     'restrictions': restrictions,
     'spatial_extent': spatial_extent,
     'temporal_extent': temporal_extent,
-    'online_resource': online_resource
+    'online_resource': online_resource,
+    'collection_id': collection_id 
 }
 
 # Atualizar o template XML e salvar o arquivo
