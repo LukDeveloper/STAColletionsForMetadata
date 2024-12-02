@@ -11,7 +11,7 @@ response = requests.get(collections_url)
 collections_data = response.json().get("collections", [])
 
 # Caminho para Template XML ISO19115/19139
-template_file = '/kaggle/input/templateatualizado/MetadataTemplateSTAC.xml'
+template_file = 'C:\\Users\\Luk\\Desktop\\ScriptSTACByTmeplate\\MetadataTemplateSTAC.xml'
 with open(template_file, 'r', encoding='utf-8') as file:
     xml_template = file.read()
 
@@ -58,26 +58,41 @@ def get_first_png_url(stac_collection_url):
     
     return "Nenhuma imagem PNG encontrada."
 
-# Função para extrair formatos dos assets
 def get_resource_formats(stac_collection_url):
+    # Construir a URL dos itens da coleção
     stac_items_url = stac_collection_url.rstrip('/') + "/items"
     response = requests.get(stac_items_url)
     
+    # Verificar se a resposta foi bem-sucedida
     if response.status_code != 200:
         return ["Erro ao acessar os itens da coleção"]
 
     items_data = response.json().get('features', [])
     
+    # Usar um set para armazenar formatos únicos
     formats = set()
 
-    # Itera sobre os itens e assets para coletar os formatos
+    # Iterar sobre os itens e assets para coletar formatos
     for item in items_data:
         assets = item.get('assets', {})
-        for asset_info in assets.values():
-            asset_type = asset_info.get('type')
-            if asset_type:
+        
+        for asset_key, asset_info in assets.items():
+            # Tentar capturar o tipo do asset (formato) usando diferentes campos
+            asset_type = asset_info.get('type', '').lower()
+            
+            # Identificar formatos específicos
+            if 'profile=cloud-optimized' in asset_type:
+                formats.add('COG')
+            elif 'geotiff' in asset_type:
+                formats.add('GeoTIFF')
+            elif 'png' in asset_type:
+                formats.add('PNG')
+            elif 'json' in asset_type:
+                formats.add('JSON')
+            else:
                 formats.add(asset_type)
-
+    
+    # Retornar uma lista dos formatos únicos encontrados
     return list(formats)
 
 def process_collection(collection_data, stac_collection_url):
@@ -252,7 +267,7 @@ def update_xml_with_data(xml_template, data):
     return tree
 
 # Diretório para salvar os arquivos XML de saída
-output_dir = '/kaggle/working/output_xml_files'
+output_dir = 'C:\\Users\\Luk\\Desktop\\ScriptSTACByTmeplate\\output_xml_files'
 os.makedirs(output_dir, exist_ok=True)
 
 if collections_data:
