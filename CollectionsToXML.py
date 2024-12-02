@@ -11,7 +11,7 @@ response = requests.get(collections_url)
 collections_data = response.json().get("collections", [])
 
 # Caminho para Template XML ISO19115/19139
-template_file = 'C:\\Users\\Luk\\Desktop\\ScriptSTACByTmeplate\\MetadataTemplateSTAC.xml'
+template_file = 'YourTemplate.xml'
 with open(template_file, 'r', encoding='utf-8') as file:
     xml_template = file.read()
 
@@ -267,7 +267,7 @@ def update_xml_with_data(xml_template, data):
     return tree
 
 # Diretório para salvar os arquivos XML de saída
-output_dir = 'C:\\Users\\Luk\\Desktop\\ScriptSTACByTmeplate\\output_xml_files'
+output_dir = 'output_xml_files'
 os.makedirs(output_dir, exist_ok=True)
 
 if collections_data:
