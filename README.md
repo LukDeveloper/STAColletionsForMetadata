@@ -1,8 +1,6 @@
 # STAColletionsForMetadata
 
-# Script para Geração de Metadados XML a Partir de Coleções STAC
-
-## Descrição
+## Script para Geração de Metadados XML a Partir de Coleções STAC
 
 Este repositório contém um script Python que automatiza a criação de arquivos de metadados XML no padrão **ISO 19115/19139**. Os metadados são gerados a partir de coleções STAC (SpatioTemporal Asset Catalog) disponibilizadas em um endpoint STAC.
 
