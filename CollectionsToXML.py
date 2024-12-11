@@ -33,18 +33,22 @@ def format_date(date_str):
     except ValueError:
         return date_str
 
-# Função para obter a URL da primeira imagem PNG de uma coleção STAC
-def get_first_png_url(stac_collection_url):
+import requests
+
+# Função para obter a URL da melhor imagem PNG de uma coleção STAC
+def get_best_png_url(stac_collection_url):
     # URL dos itens da coleção
     stac_items_url = stac_collection_url.rstrip('/') + "/items"
 
     # Requisição para obter os itens
     response = requests.get(stac_items_url)
-    
     if response.status_code != 200:
         return "Erro ao acessar os itens da coleção"
 
     items_data = response.json().get('features', [])
+
+    best_png = None
+    best_size = 0  # Tamanho em bytes como critério inicial
 
     # Percorre os itens da coleção
     for item in items_data:
@@ -53,12 +57,34 @@ def get_first_png_url(stac_collection_url):
         
         # Itera sobre os assets para procurar por PNG
         for asset_info in assets.values():
-            if asset_info.get('href', '').endswith('.png'):
-                return asset_info['href']
-    
-    return "Nenhuma imagem PNG encontrada."
+            href = asset_info.get('href', '')
+            asset_type = asset_info.get('type', '').lower()
+
+            # Considera apenas PNGs
+            if href.endswith('.png') or 'png' in asset_type:
+                # Obtém o tamanho do arquivo em `bdc:size`
+                file_size = asset_info.get('bdc:size', 0)
+                
+                # Obtém as dimensões da imagem (opcional)
+                raster_size = asset_info.get('bdc:raster_size', {})
+                width = raster_size.get('x', 0)
+                height = raster_size.get('y', 0)
+                
+                # Calcula um score baseado no tamanho e na área
+                score = file_size * (width * height if width and height else 1)
+
+                # Atualiza a melhor imagem se o score for maior
+                if score > best_size:
+                    best_png = href
+                    best_size = score
+
+    # Retorna a URL da melhor PNG encontrada
+    return best_png if best_png else "Nenhuma imagem PNG encontrada."
+
 
 def get_resource_formats(stac_collection_url):
+    import requests
+    
     # Construir a URL dos itens da coleção
     stac_items_url = stac_collection_url.rstrip('/') + "/items"
     response = requests.get(stac_items_url)
@@ -72,16 +98,31 @@ def get_resource_formats(stac_collection_url):
     # Usar um set para armazenar formatos únicos
     formats = set()
 
+    # Mapeamento de tipos MIME para nomes amigáveis
+    format_mapping = {
+        'application/x-netcdf': 'NetCDF',
+        'application/zip': 'ZIP',
+        'image/png': 'PNG',
+        'image/jpeg': 'JPEG',
+        'image/tiff': 'GeoTIFF',
+        'application/json': 'JSON',
+        'text/plain': 'TXT',
+        'application/xml': 'XML',
+        'application/octet-stream': 'Binary',
+    }
+
     # Iterar sobre os itens e assets para coletar formatos
     for item in items_data:
         assets = item.get('assets', {})
         
         for asset_key, asset_info in assets.items():
-            # Tentar capturar o tipo do asset (formato) usando diferentes campos
+            # Capturar o tipo do asset (formato)
             asset_type = asset_info.get('type', '').lower()
             
-            # Identificar formatos específicos
-            if 'profile=cloud-optimized' in asset_type:
+            # Verificar se o tipo está no mapeamento
+            if asset_type in format_mapping:
+                formats.add(format_mapping[asset_type])
+            elif 'profile=cloud-optimized' in asset_type:
                 formats.add('COG')
             elif 'geotiff' in asset_type:
                 formats.add('GeoTIFF')
@@ -91,9 +132,10 @@ def get_resource_formats(stac_collection_url):
                 formats.add('JSON')
             else:
                 formats.add(asset_type)
-    
+
     # Retornar uma lista dos formatos únicos encontrados
     return list(formats)
+
 
 def process_collection(collection_data, stac_collection_url):
     print(f"Processando coleção: {collection_data.get('id', 'ID não disponível')}")
@@ -194,7 +236,7 @@ def update_xml_with_data(xml_template, data):
          # Adicionando valor para "Overview (URL da imagem)"
         overview = root.find('.//gmd:MD_BrowseGraphic/gmd:fileName/gco:CharacterString', namespaces)
         if overview is not None:
-            overview.text = get_first_png_url(data.get('collection_url', ''))
+            overview.text = get_best_png_url(data.get('collection_url', ''))
     
         # Adicionando valor para "Restrições de Recursos"
         constraints_elem = root.find('.//gmd:resourceConstraints/gmd:MD_LegalConstraints/gmd:otherConstraints/gco:CharacterString', namespaces)
